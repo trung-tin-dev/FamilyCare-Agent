@@ -3,6 +3,8 @@
 // Kết nối Prisma + Neon PostgreSQL
 // Dùng Neon adapter cho Prisma 7.x
 // ═══════════════════════════════════════════════
+import dotenv from "dotenv";
+dotenv.config();
 import { PrismaClient } from "../generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { neonConfig } from "@neondatabase/serverless";

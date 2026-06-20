@@ -5,7 +5,6 @@
 
 generator client {
   provider        = "prisma-client"
-  previewFeatures = ["driverAdapters"]
   output          = "../src/generated/prisma"
 }
 
@@ -13,55 +12,40 @@ datasource db {
   provider = "postgresql"
 }
 
-
 model CheckIn {
   id              String   @id @default(uuid())
-  date            String   // "2024-01-15"
-  time            String   // "07:05"
-  session         String   // "morning" | "evening"
-
-  // Sức khỏe
-  feeling         String   // "good" | "okay" | "bad"
+  date            String
+  time            String
+  session         String
+  feeling         String
   voiceTranscript String   @default("")
-  symptoms        String   @default("[]") // JSON string array
+  symptoms        String   @default("[]")
   medicationTaken Boolean  @default(false)
   medicationNotes String   @default("")
-
-  // Cách nhập
-  inputType       String   // "button" | "voice" | "text"
-
+  inputType       String
   createdAt       DateTime @default(now())
 
   @@map("check_ins")
 }
 
-// ───────────────────────────────────────────────
-// Bảng lưu cảnh báo
-// ───────────────────────────────────────────────
 model Alert {
   id         String    @id @default(uuid())
-  type       String    // AlertType
-  severity   String    // "low" | "medium" | "high" | "emergency"
-
+  type       String
+  severity   String
   title      String
   message    String
   action     String
-
   isRead     Boolean   @default(false)
   isResolved Boolean   @default(false)
-
   createdAt  DateTime  @default(now())
   readAt     DateTime?
 
   @@map("alerts")
 }
 
-// ───────────────────────────────────────────────
-// Bảng lưu thông báo đã gửi
-// ───────────────────────────────────────────────
 model Notification {
   id          String    @id @default(uuid())
-  type        String    // "email" | "web"
+  type        String
   subject     String
   body        String
   alertId     String?

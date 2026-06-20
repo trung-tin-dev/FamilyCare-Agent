@@ -1,154 +1,218 @@
 // apps/api/src/routes/reports.ts
 // ═══════════════════════════════════════════════
-// Route tạo báo cáo ngày và tuần cho con cái
+// Route tạo báo cáo ngày và tuần
+// Lấy dữ liệu từ Neon PostgreSQL qua Prisma
 // ═══════════════════════════════════════════════
 import { Router } from "express";
-import { checkIns, alerts } from "./checkin";
+import { prisma } from "../lib/db";
 import { sendDailyReportEmail } from "../services/email";
-import type {
-  WeeklyStats,
-  OverallStatus,
-  DailyReport,
-} from "@familycare/shared";
+import type { OverallStatus, DailyReport } from "@familycare/shared";
 
 const router = Router();
+
+// ───────────────────────────────────────────────
+// Helper - Format check-in từ DB sang type
+// ───────────────────────────────────────────────
+function formatCheckIn(c: any) {
+  if (!c) return null;
+  return {
+    ...c,
+    symptoms: (() => {
+      try {
+        return JSON.parse(c.symptoms);
+      } catch {
+        return [];
+      }
+    })(),
+    createdAt: c.createdAt.toISOString(),
+  };
+}
+
+// ───────────────────────────────────────────────
+// Helper - Tính tình trạng tổng thể
+// ───────────────────────────────────────────────
+function calcOverallStatus(alerts: any[], checkIns: any[]): OverallStatus {
+  if (alerts.some((a) => a.severity === "emergency")) return "critical";
+  if (alerts.some((a) => a.severity === "high")) return "concerning";
+  if (alerts.some((a) => a.severity === "medium")) return "okay";
+  if (checkIns.some((c) => c.feeling === "bad")) return "okay";
+  if (checkIns.some((c) => c.feeling === "okay")) return "okay";
+  return "good";
+}
 
 // ───────────────────────────────────────────────
 // GET /api/reports/today
 // Báo cáo sức khỏe hôm nay
 // ───────────────────────────────────────────────
-router.get("/today", (_req, res) => {
-  const today = new Date().toISOString().split("T")[0];
-  const todayCheckIns = checkIns.filter((c) => c.date === today);
+router.get("/today", async (_req, res) => {
+  try {
+    const today = new Date().toISOString().split("T")[0];
 
-  // Tìm check-in sáng và tối
-  const morningCheckIn =
-    todayCheckIns.find((c) => c.session === "morning") || null;
+    // Lấy check-in hôm nay
+    const todayCheckIns = await prisma.checkIn.findMany({
+      where: { date: today },
+      orderBy: { createdAt: "asc" },
+    });
 
-  const eveningCheckIn =
-    todayCheckIns.find((c) => c.session === "evening") || null;
+    // Lấy alerts hôm nay
+    const startOfDay = new Date(today);
+    const endOfDay = new Date(new Date(today).getTime() + 24 * 60 * 60 * 1000);
 
-  // Xác định tình trạng tổng thể
-  const todayAlerts = alerts.filter((a) => a.createdAt.startsWith(today));
+    const todayAlerts = await prisma.alert.findMany({
+      where: {
+        createdAt: {
+          gte: startOfDay,
+          lt: endOfDay,
+        },
+      },
+    });
 
-  let overallStatus: OverallStatus = "good";
+    const morningCheckIn =
+      todayCheckIns.find((c) => c.session === "morning") || null;
 
-  if (todayAlerts.some((a) => a.severity === "emergency")) {
-    overallStatus = "critical";
-  } else if (todayAlerts.some((a) => a.severity === "high")) {
-    overallStatus = "concerning";
-  } else if (todayAlerts.some((a) => a.severity === "medium")) {
-    overallStatus = "okay";
-  } else if (todayCheckIns.some((c) => c.feeling === "bad")) {
-    overallStatus = "okay";
+    const eveningCheckIn =
+      todayCheckIns.find((c) => c.session === "evening") || null;
+
+    // Tính tình trạng tổng thể
+    const overallStatus = calcOverallStatus(todayAlerts, todayCheckIns);
+
+    // Tạo highlights
+    const highlights: string[] = [];
+
+    if (!morningCheckIn) {
+      highlights.push("Chưa check-in buổi sáng");
+    }
+    if (!eveningCheckIn) {
+      highlights.push("Chưa check-in buổi tối");
+    }
+
+    const allSymptoms = todayCheckIns.flatMap((c) => {
+      try {
+        return JSON.parse(c.symptoms) as string[];
+      } catch {
+        return [];
+      }
+    });
+    const uniqueSymptoms = [...new Set(allSymptoms)];
+    if (uniqueSymptoms.length > 0) {
+      highlights.push(`Triệu chứng hôm nay: ${uniqueSymptoms.join(", ")}`);
+    }
+
+    const tookMedication = todayCheckIns.some((c) => c.medicationTaken);
+    if (!tookMedication && todayCheckIns.length > 0) {
+      highlights.push("Chưa xác nhận uống thuốc hôm nay");
+    }
+
+    const report: DailyReport = {
+      date: today,
+      morningCheckIn: formatCheckIn(morningCheckIn),
+      eveningCheckIn: formatCheckIn(eveningCheckIn),
+      overallStatus,
+      highlights,
+      symptomReport: null,
+      checkInCount: todayCheckIns.length,
+      missedCheckIns: [
+        ...(!morningCheckIn ? ["morning"] : []),
+        ...(!eveningCheckIn ? ["evening"] : []),
+      ],
+      generatedAt: new Date().toISOString(),
+    };
+
+    res.json(report);
+  } catch (error: any) {
+    console.error(`❌ Lỗi reports/today: ${error.message}`);
+    res.status(500).json({ error: error.message });
   }
-
-  // Tạo highlights
-  const highlights: string[] = [];
-
-  if (!morningCheckIn) {
-    highlights.push("Chưa check-in buổi sáng");
-  }
-  if (!eveningCheckIn) {
-    highlights.push("Chưa check-in buổi tối");
-  }
-
-  // Tổng hợp triệu chứng hôm nay
-  const allSymptoms = todayCheckIns.flatMap((c) => c.symptoms);
-  const uniqueSymptoms = [...new Set(allSymptoms)];
-
-  if (uniqueSymptoms.length > 0) {
-    highlights.push(`Triệu chứng hôm nay: ${uniqueSymptoms.join(", ")}`);
-  }
-
-  // Kiểm tra uống thuốc
-  const tookMedication = todayCheckIns.some((c) => c.medicationTaken);
-  if (!tookMedication && todayCheckIns.length > 0) {
-    highlights.push("Chưa xác nhận uống thuốc hôm nay");
-  }
-
-  const report: DailyReport = {
-    date: today,
-    morningCheckIn,
-    eveningCheckIn,
-    overallStatus,
-    highlights,
-    symptomReport: null,
-    checkInCount: todayCheckIns.length,
-    missedCheckIns: [
-      ...(!morningCheckIn ? ["morning"] : []),
-      ...(!eveningCheckIn ? ["evening"] : []),
-    ],
-    generatedAt: new Date().toISOString(),
-  };
-
-  res.json(report);
 });
 
 // ───────────────────────────────────────────────
 // GET /api/reports/week
-// Thống kê sức khỏe 7 ngày
+// Thống kê sức khỏe 7 ngày gần nhất
 // ───────────────────────────────────────────────
-router.get("/week", (_req, res) => {
-  const today = new Date();
-  const weekStart = new Date(today);
-  weekStart.setDate(today.getDate() - 6);
+router.get("/week", async (_req, res) => {
+  try {
+    const today = new Date();
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - 6);
+    weekStart.setHours(0, 0, 0, 0);
 
-  // Lọc check-in trong tuần
-  const weekCheckIns = checkIns.filter((c) => {
-    const date = new Date(c.date);
-    return date >= weekStart && date <= today;
-  });
+    // Lấy check-in trong tuần
+    const weekCheckIns = await prisma.checkIn.findMany({
+      where: {
+        createdAt: {
+          gte: weekStart,
+          lte: today,
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
 
-  // Tính số ngày theo từng trạng thái
-  const daysWithCheckIn = new Set(weekCheckIns.map((c) => c.date));
-  const goodDays = [...daysWithCheckIn].filter((date) =>
-    weekCheckIns
-      .filter((c) => c.date === date)
-      .every((c) => c.feeling === "good"),
-  ).length;
+    // Lấy alerts trong tuần
+    const weekAlerts = await prisma.alert.findMany({
+      where: {
+        createdAt: {
+          gte: weekStart,
+          lte: today,
+        },
+      },
+    });
 
-  const badDays = [...daysWithCheckIn].filter((date) =>
-    weekCheckIns
-      .filter((c) => c.date === date)
-      .some((c) => c.feeling === "bad"),
-  ).length;
+    // Thống kê theo ngày
+    const daysWithCheckIn = new Set(weekCheckIns.map((c) => c.date));
 
-  const okayDays = daysWithCheckIn.size - goodDays - badDays;
-  const missedDays = 7 - daysWithCheckIn.size;
+    const goodDays = [...daysWithCheckIn].filter((date) =>
+      weekCheckIns
+        .filter((c) => c.date === date)
+        .every((c) => c.feeling === "good"),
+    ).length;
 
-  // Triệu chứng hay gặp nhất
-  const allSymptoms = weekCheckIns.flatMap((c) => c.symptoms);
-  const symptomCount: Record<string, number> = {};
+    const badDays = [...daysWithCheckIn].filter((date) =>
+      weekCheckIns
+        .filter((c) => c.date === date)
+        .some((c) => c.feeling === "bad"),
+    ).length;
 
-  allSymptoms.forEach((s) => {
-    symptomCount[s] = (symptomCount[s] || 0) + 1;
-  });
+    const okayDays = daysWithCheckIn.size - goodDays - badDays;
+    const missedDays = 7 - daysWithCheckIn.size;
 
-  const mostCommonSymptoms = Object.entries(symptomCount)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([symptom]) => symptom);
+    // Triệu chứng hay gặp nhất
+    const allSymptoms = weekCheckIns.flatMap((c) => {
+      try {
+        return JSON.parse(c.symptoms) as string[];
+      } catch {
+        return [];
+      }
+    });
 
-  // Alerts trong tuần
-  const weekAlerts = alerts.filter((a) => {
-    const date = new Date(a.createdAt);
-    return date >= weekStart && date <= today;
-  });
+    const symptomCount: Record<string, number> = {};
+    allSymptoms.forEach((s) => {
+      symptomCount[s] = (symptomCount[s] || 0) + 1;
+    });
 
-  const weeklyStats: WeeklyStats = {
-    weekStart: weekStart.toISOString().split("T")[0],
-    weekEnd: today.toISOString().split("T")[0],
-    totalCheckIns: weekCheckIns.length,
-    goodDays,
-    okayDays,
-    badDays,
-    missedDays,
-    mostCommonSymptoms,
-    alerts: weekAlerts,
-  };
+    const mostCommonSymptoms = Object.entries(symptomCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([s]) => s);
 
-  res.json(weeklyStats);
+    res.json({
+      weekStart: weekStart.toISOString().split("T")[0],
+      weekEnd: today.toISOString().split("T")[0],
+      totalCheckIns: weekCheckIns.length,
+      goodDays,
+      okayDays,
+      badDays,
+      missedDays,
+      mostCommonSymptoms,
+      alerts: weekAlerts.map((a) => ({
+        ...a,
+        createdAt: a.createdAt.toISOString(),
+        readAt: a.readAt?.toISOString() || null,
+      })),
+    });
+  } catch (error: any) {
+    console.error(`❌ Lỗi reports/week: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ───────────────────────────────────────────────
@@ -156,72 +220,88 @@ router.get("/week", (_req, res) => {
 // Gửi báo cáo cuối ngày qua email
 // ───────────────────────────────────────────────
 router.post("/send-daily", async (req, res) => {
-  const { childEmail, childName, callName } = req.body;
+  try {
+    const { childEmail, childName, callName } = req.body;
 
-  if (!childEmail) {
-    return res.status(400).json({
-      error: "Thiếu thông tin email",
+    if (!childEmail) {
+      return res.status(400).json({ error: "Thiếu thông tin email" });
+    }
+
+    const today = new Date().toISOString().split("T")[0];
+
+    const todayCheckIns = await prisma.checkIn.findMany({
+      where: { date: today },
+      orderBy: { createdAt: "asc" },
     });
+
+    const morningCheckIn =
+      todayCheckIns.find((c) => c.session === "morning") || null;
+
+    const eveningCheckIn =
+      todayCheckIns.find((c) => c.session === "evening") || null;
+
+    // Tính trạng thái
+    let overallStatus: OverallStatus = "good";
+    if (todayCheckIns.some((c) => c.feeling === "bad")) {
+      overallStatus = "concerning";
+    } else if (todayCheckIns.some((c) => c.feeling === "okay")) {
+      overallStatus = "okay";
+    }
+
+    // Highlights
+    const highlights: string[] = [];
+    if (!morningCheckIn) highlights.push("Chưa check-in buổi sáng");
+    if (!eveningCheckIn) highlights.push("Chưa check-in buổi tối");
+
+    const allSymptoms = todayCheckIns.flatMap((c) => {
+      try {
+        return JSON.parse(c.symptoms) as string[];
+      } catch {
+        return [];
+      }
+    });
+    const uniqueSymptoms = [...new Set(allSymptoms)];
+    if (uniqueSymptoms.length > 0) {
+      highlights.push(`Triệu chứng: ${uniqueSymptoms.join(", ")}`);
+    }
+
+    const report: DailyReport = {
+      date: today,
+      morningCheckIn: formatCheckIn(morningCheckIn),
+      eveningCheckIn: formatCheckIn(eveningCheckIn),
+      overallStatus,
+      highlights,
+      symptomReport: null,
+      checkInCount: todayCheckIns.length,
+      missedCheckIns: [
+        ...(!morningCheckIn ? ["morning"] : []),
+        ...(!eveningCheckIn ? ["evening"] : []),
+      ],
+      generatedAt: new Date().toISOString(),
+    };
+
+    // Dùng email của mình khi dev
+    const toEmail =
+      process.env.NODE_ENV === "development"
+        ? process.env.ALERT_TO_EMAIL || childEmail
+        : childEmail;
+
+    const sent = await sendDailyReportEmail({
+      toEmail,
+      childName: childName || "Con",
+      parentCallName: callName || "Ba/Mẹ",
+      report,
+    });
+
+    res.json({
+      success: sent,
+      message: sent ? "Đã gửi báo cáo thành công" : "Gửi báo cáo thất bại",
+      report,
+    });
+  } catch (error: any) {
+    console.error(`❌ Lỗi send-daily: ${error.message}`);
+    res.status(500).json({ error: error.message });
   }
-
-  const today = new Date().toISOString().split("T")[0];
-  const todayCheckIns = checkIns.filter((c) => c.date === today);
-
-  const morningCheckIn =
-    todayCheckIns.find((c) => c.session === "morning") || null;
-
-  const eveningCheckIn =
-    todayCheckIns.find((c) => c.session === "evening") || null;
-
-  // Xác định tình trạng
-  let overallStatus: OverallStatus = "good";
-  if (todayCheckIns.some((c) => c.feeling === "bad")) {
-    overallStatus = "concerning";
-  } else if (todayCheckIns.some((c) => c.feeling === "okay")) {
-    overallStatus = "okay";
-  }
-
-  const highlights: string[] = [];
-  if (!morningCheckIn) highlights.push("Chưa check-in buổi sáng");
-  if (!eveningCheckIn) highlights.push("Chưa check-in buổi tối");
-
-  const allSymptoms = todayCheckIns.flatMap((c) => c.symptoms);
-  const uniqueSymptoms = [...new Set(allSymptoms)];
-  if (uniqueSymptoms.length > 0) {
-    highlights.push(`Triệu chứng: ${uniqueSymptoms.join(", ")}`);
-  }
-
-  const report: DailyReport = {
-    date: today,
-    morningCheckIn,
-    eveningCheckIn,
-    overallStatus,
-    highlights,
-    symptomReport: null,
-    checkInCount: todayCheckIns.length,
-    missedCheckIns: [
-      ...(!morningCheckIn ? ["morning"] : []),
-      ...(!eveningCheckIn ? ["evening"] : []),
-    ],
-    generatedAt: new Date().toISOString(),
-  };
-
-  const toEmail = process.env.NODE_ENV === 'development'
-    ? (process.env.ALERT_TO_EMAIL || childEmail)
-    : childEmail
-
-  const sent = await sendDailyReportEmail({
-    toEmail,
-    childName: childName || 'Con',
-    parentCallName: callName || 'Ba/Mẹ',
-    report,
-  });
-
-  res.json({
-    success: sent,
-    message: sent ? "Đã gửi báo cáo thành công" : "Gửi báo cáo thất bại",
-    report,
-  });
 });
 
 export default router;

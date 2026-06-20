@@ -1,11 +1,13 @@
 // apps/api/src/routes/checkin.ts
 // ═══════════════════════════════════════════════
 // Route xử lý check-in từ ba mẹ
+// Lưu vào Neon PostgreSQL qua Prisma
 // ═══════════════════════════════════════════════
 import { Router, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { analyzeCheckIn } from "../services/pythonAgent";
 import { sendAlertEmail } from "../services/email";
+import { prisma } from "../lib/db";
 import type {
   CheckInRequest,
   CheckInResponse,
@@ -14,11 +16,6 @@ import type {
 } from "@familycare/shared";
 
 const router = Router();
-
-// Lưu trong memory
-// Production: dùng file encrypted hoặc database
-export const checkIns: CheckIn[] = [];
-export const alerts: Alert[] = [];
 
 // ───────────────────────────────────────────────
 // POST /api/checkin
@@ -51,13 +48,23 @@ router.post(
 
     console.log(`\n📥 Check-in mới: feeling=${feeling}, session=${session}`);
 
-    // Lấy triệu chứng gần đây từ lịch sử 5 lần gần nhất
-    const recentSymptoms = checkIns
-      .slice(-5)
-      .flatMap((c) => c.symptoms)
-      .filter((s, i, arr) => arr.indexOf(s) === i);
-
     try {
+      // Lấy triệu chứng gần đây từ DB
+      const recentCheckIns = await prisma.checkIn.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      });
+
+      const recentSymptoms = recentCheckIns
+        .flatMap((c) => {
+          try {
+            return JSON.parse(c.symptoms) as string[];
+          } catch {
+            return [];
+          }
+        })
+        .filter((s, i, arr) => arr.indexOf(s) === i);
+
       // Gửi sang Python Agent phân tích
       const agentResult = await analyzeCheckIn({
         message:
@@ -70,64 +77,73 @@ router.post(
                 : "không khỏe"
           }`,
         sessionId: uuidv4(),
-        context: {
-          feeling,
+        context: { feeling, session, recentSymptoms },
+      });
+
+      // Lưu check-in vào DB
+      const savedCheckIn = await prisma.checkIn.create({
+        data: {
+          id: uuidv4(),
+          date: new Date().toISOString().split("T")[0],
+          time: new Date().toLocaleTimeString("vi-VN"),
           session,
-          recentSymptoms,
+          feeling,
+          voiceTranscript,
+          symptoms: JSON.stringify(agentResult.detectedSymptoms),
+          medicationTaken,
+          medicationNotes: "",
+          inputType,
         },
       });
 
-      // Tạo bản ghi check-in mới
+      // Chuyển sang type CheckIn
       const newCheckIn: CheckIn = {
-        id: uuidv4(),
-        date: new Date().toISOString().split("T")[0],
-        time: new Date().toLocaleTimeString("vi-VN"),
-        session,
-        feeling,
-        voiceTranscript,
-        symptoms: agentResult.detectedSymptoms,
-        medicationTaken,
-        medicationNotes: "",
-        inputType,
-        createdAt: new Date().toISOString(),
+        ...savedCheckIn,
+        symptoms: JSON.parse(savedCheckIn.symptoms),
+        session: savedCheckIn.session as "morning" | "evening",
+        feeling: savedCheckIn.feeling as "good" | "okay" | "bad",
+        inputType: savedCheckIn.inputType as "button" | "voice" | "text",
+        createdAt: savedCheckIn.createdAt.toISOString(),
       };
-
-      checkIns.push(newCheckIn);
 
       // Xử lý cảnh báo
       const newAlerts: Alert[] = [];
 
       if (agentResult.shouldNotifyChild) {
+        // Lưu alert vào DB
+        const savedAlert = await prisma.alert.create({
+          data: {
+            id: uuidv4(),
+            type:
+              agentResult.severity === "emergency"
+                ? "EMERGENCY"
+                : "SYMPTOM_CONSECUTIVE",
+            severity: agentResult.severity,
+            title:
+              agentResult.severity === "emergency"
+                ? "🚨 Cần hỗ trợ khẩn cấp!"
+                : `⚠️ ${profile?.callName || "Ba/Mẹ"} cần được chú ý`,
+            message: voiceTranscript
+              ? `${profile?.callName || "Ba/Mẹ"} nói: "${voiceTranscript}"`
+              : `${profile?.callName || "Ba/Mẹ"} cảm thấy không khỏe`,
+            action:
+              agentResult.severity === "emergency"
+                ? "Gọi điện ngay hoặc liên hệ cấp cứu 115"
+                : `Gọi hỏi thăm ${profile?.callName || "Ba/Mẹ"} hôm nay`,
+          },
+        });
+
         const alert: Alert = {
-          id: uuidv4(),
-          type:
-            agentResult.severity === "emergency"
-              ? "EMERGENCY"
-              : "SYMPTOM_CONSECUTIVE",
-          severity: agentResult.severity,
-          title:
-            agentResult.severity === "emergency"
-              ? "🚨 Cần hỗ trợ khẩn cấp!"
-              : `⚠️ ${profile?.callName || "Ba/Mẹ"} cần được chú ý`,
-          message: voiceTranscript
-            ? `${profile?.callName || "Ba/Mẹ"} nói: "${voiceTranscript}"`
-            : `${profile?.callName || "Ba/Mẹ"} cảm thấy không khỏe`,
-          action:
-            agentResult.severity === "emergency"
-              ? "Gọi điện ngay hoặc liên hệ cấp cứu 115"
-              : `Gọi hỏi thăm ${profile?.callName || "Ba/Mẹ"} hôm nay`,
-          isRead: false,
-          isResolved: false,
-          createdAt: new Date().toISOString(),
-          readAt: null,
+          ...savedAlert,
+          type: savedAlert.type as Alert["type"],
+          severity: savedAlert.severity as Alert["severity"],
+          createdAt: savedAlert.createdAt.toISOString(),
+          readAt: savedAlert.readAt?.toISOString() || null,
         };
 
         newAlerts.push(alert);
-        alerts.push(alert);
 
-        // Gửi email nếu có thông tin profile
-        // Ưu tiên dùng email trong .env khi dev
-        // Khi production dùng email của con cái
+        // Gửi email
         const toEmail =
           process.env.NODE_ENV === "development"
             ? process.env.ALERT_TO_EMAIL || profile?.childEmail || ""
@@ -143,9 +159,7 @@ router.post(
         }
       }
 
-      console.log(
-        `✅ Check-in xong - shouldNotify=${agentResult.shouldNotifyChild}`,
-      );
+      console.log(`✅ Check-in lưu DB thành công - id=${savedCheckIn.id}`);
 
       return res.json({
         success: true,
@@ -170,25 +184,53 @@ router.post(
 // GET /api/checkin/today
 // Lấy check-in hôm nay
 // ───────────────────────────────────────────────
-router.get("/today", (_req, res) => {
-  const today = new Date().toISOString().split("T")[0];
-  const todayCheckIns = checkIns.filter((c) => c.date === today);
+router.get("/today", async (_req, res) => {
+  try {
+    const today = new Date().toISOString().split("T")[0];
 
-  res.json({
-    date: today,
-    checkIns: todayCheckIns,
-    morningDone: todayCheckIns.some((c) => c.session === "morning"),
-    eveningDone: todayCheckIns.some((c) => c.session === "evening"),
-  });
+    const todayCheckIns = await prisma.checkIn.findMany({
+      where: { date: today },
+      orderBy: { createdAt: "asc" },
+    });
+
+    const formatted = todayCheckIns.map((c) => ({
+      ...c,
+      symptoms: JSON.parse(c.symptoms),
+      createdAt: c.createdAt.toISOString(),
+    }));
+
+    res.json({
+      date: today,
+      checkIns: formatted,
+      morningDone: formatted.some((c) => c.session === "morning"),
+      eveningDone: formatted.some((c) => c.session === "evening"),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ───────────────────────────────────────────────
 // GET /api/checkin/history
-// Lấy lịch sử 7 ngày gần nhất
+// Lấy lịch sử 14 ngày gần nhất
 // ───────────────────────────────────────────────
-router.get("/history", (_req, res) => {
-  const last14 = checkIns.slice(-14);
-  res.json({ checkIns: last14 });
+router.get("/history", async (_req, res) => {
+  try {
+    const checkIns = await prisma.checkIn.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 14,
+    });
+
+    res.json({
+      checkIns: checkIns.map((c) => ({
+        ...c,
+        symptoms: JSON.parse(c.symptoms),
+        createdAt: c.createdAt.toISOString(),
+      })),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 export default router;

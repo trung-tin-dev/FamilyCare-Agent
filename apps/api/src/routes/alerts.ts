@@ -1,9 +1,10 @@
 // apps/api/src/routes/alerts.ts
 // ═══════════════════════════════════════════════
-// Route quản lý cảnh báo cho con cái
+// Route quản lý cảnh báo
+// Lưu vào Neon PostgreSQL qua Prisma
 // ═══════════════════════════════════════════════
 import { Router } from "express";
-import { alerts } from "./checkin";
+import { prisma } from "../lib/db";
 
 const router = Router();
 
@@ -11,100 +12,139 @@ const router = Router();
 // GET /api/alerts
 // Lấy tất cả cảnh báo
 // ───────────────────────────────────────────────
-router.get("/", (_req, res) => {
-  const unread = alerts.filter((a) => !a.isRead);
+router.get("/", async (_req, res) => {
+  try {
+    const alerts = await prisma.alert.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    });
 
-  res.json({
-    total: alerts.length,
-    unread: unread.length,
-    alerts: alerts.slice(-20), // 20 cảnh báo gần nhất
-  });
+    const unreadCount = await prisma.alert.count({
+      where: { isRead: false },
+    });
+
+    res.json({
+      total: alerts.length,
+      unread: unreadCount,
+      alerts: alerts.map((a) => ({
+        ...a,
+        createdAt: a.createdAt.toISOString(),
+        readAt: a.readAt?.toISOString() || null,
+      })),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ───────────────────────────────────────────────
 // GET /api/alerts/unread
 // Chỉ lấy cảnh báo chưa đọc
 // ───────────────────────────────────────────────
-router.get("/unread", (_req, res) => {
-  const unread = alerts.filter((a) => !a.isRead);
+router.get("/unread", async (_req, res) => {
+  try {
+    const alerts = await prisma.alert.findMany({
+      where: { isRead: false },
+      orderBy: { createdAt: "desc" },
+    });
 
-  res.json({
-    total: unread.length,
-    alerts: unread,
-  });
+    res.json({
+      total: alerts.length,
+      alerts: alerts.map((a) => ({
+        ...a,
+        createdAt: a.createdAt.toISOString(),
+        readAt: a.readAt?.toISOString() || null,
+      })),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ───────────────────────────────────────────────
+// PATCH /api/alerts/read-all
+// Đánh dấu tất cả đã đọc
+// Phải đặt TRƯỚC /:id để không bị nhầm route
+// ───────────────────────────────────────────────
+router.patch("/read-all", async (_req, res) => {
+  try {
+    const result = await prisma.alert.updateMany({
+      where: { isRead: false },
+      data: {
+        isRead: true,
+        readAt: new Date(),
+      },
+    });
+
+    console.log(`✅ Đã đọc tất cả ${result.count} alerts`);
+
+    res.json({
+      success: true,
+      markedAsRead: result.count,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ───────────────────────────────────────────────
 // PATCH /api/alerts/:id/read
-// Đánh dấu đã đọc
+// Đánh dấu 1 alert đã đọc
 // ───────────────────────────────────────────────
-router.patch("/:id/read", (req, res) => {
-  const alert = alerts.find((a) => a.id === req.params.id);
-
-  if (!alert) {
-    return res.status(404).json({
-      error: "Không tìm thấy cảnh báo",
+router.patch("/:id/read", async (req, res) => {
+  try {
+    const alert = await prisma.alert.update({
+      where: { id: req.params.id },
+      data: {
+        isRead: true,
+        readAt: new Date(),
+      },
     });
+
+    console.log(`✅ Đã đọc alert: ${alert.id}`);
+
+    res.json({
+      success: true,
+      alert: {
+        ...alert,
+        createdAt: alert.createdAt.toISOString(),
+        readAt: alert.readAt?.toISOString() || null,
+      },
+    });
+  } catch (error: any) {
+    // Prisma throw lỗi nếu không tìm thấy record
+    res.status(404).json({ error: "Không tìm thấy cảnh báo" });
   }
-
-  alert.isRead = true;
-  alert.readAt = new Date().toISOString();
-
-  console.log(`✅ Đã đọc alert: ${alert.id}`);
-
-  res.json({
-    success: true,
-    alert,
-  });
 });
 
 // ───────────────────────────────────────────────
 // PATCH /api/alerts/:id/resolve
 // Đánh dấu đã xử lý
 // ───────────────────────────────────────────────
-router.patch("/:id/resolve", (req, res) => {
-  const alert = alerts.find((a) => a.id === req.params.id);
-
-  if (!alert) {
-    return res.status(404).json({
-      error: "Không tìm thấy cảnh báo",
+router.patch("/:id/resolve", async (req, res) => {
+  try {
+    const alert = await prisma.alert.update({
+      where: { id: req.params.id },
+      data: {
+        isResolved: true,
+        isRead: true,
+        readAt: new Date(),
+      },
     });
+
+    console.log(`✅ Đã xử lý alert: ${alert.id}`);
+
+    res.json({
+      success: true,
+      alert: {
+        ...alert,
+        createdAt: alert.createdAt.toISOString(),
+        readAt: alert.readAt?.toISOString() || null,
+      },
+    });
+  } catch (error: any) {
+    res.status(404).json({ error: "Không tìm thấy cảnh báo" });
   }
-
-  alert.isResolved = true;
-  alert.isRead = true;
-  alert.readAt = alert.readAt || new Date().toISOString();
-
-  console.log(`✅ Đã xử lý alert: ${alert.id}`);
-
-  res.json({
-    success: true,
-    alert,
-  });
-});
-
-// ───────────────────────────────────────────────
-// PATCH /api/alerts/read-all
-// Đánh dấu tất cả đã đọc
-// ───────────────────────────────────────────────
-router.patch("/read-all", (_req, res) => {
-  const now = new Date().toISOString();
-  let count = 0;
-
-  alerts.forEach((a) => {
-    if (!a.isRead) {
-      a.isRead = true;
-      a.readAt = now;
-      count++;
-    }
-  });
-
-  console.log(`✅ Đã đọc tất cả ${count} alerts`);
-
-  res.json({
-    success: true,
-    markedAsRead: count,
-  });
 });
 
 export default router;
