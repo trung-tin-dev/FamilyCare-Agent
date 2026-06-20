@@ -307,7 +307,7 @@ useEffect(() => {
   if (!profile) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex flex-col p-5 gap-4">
+    <div className="min-h-screen bg-linear-to-b from-blue-50 to-white flex flex-col p-5 gap-4">
       {/* Header */}
       <div className="pt-4 pb-2 text-center">
         <p className="text-2xl text-gray-500">{getGreeting()}!</p>
