@@ -36,3 +36,10 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+*.enc
+.familycare_key
+__pycache__/
+*.pyc
+venv/
+python/data/*.enc
