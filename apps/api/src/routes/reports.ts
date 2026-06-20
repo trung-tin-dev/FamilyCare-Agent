@@ -1,37 +1,26 @@
 // apps/api/src/routes/reports.ts
 // ═══════════════════════════════════════════════
 // Route tạo báo cáo ngày và tuần
-// Lấy dữ liệu từ Neon PostgreSQL qua Prisma
+// Lấy dữ liệu từ file JSON cục bộ (Privacy-First)
 // ═══════════════════════════════════════════════
 import { Router } from "express";
-import { prisma } from "../lib/db";
+import {
+  getCheckInsByDate,
+  getCheckInsInRange,
+  getAlertsInRange,
+} from "../lib/localStore";
 import { sendDailyReportEmail } from "../services/email";
-import type { OverallStatus, DailyReport } from "@familycare/shared";
+import type { OverallStatus, DailyReport, CheckIn } from "@familycare/shared";
 
 const router = Router();
 
 // ───────────────────────────────────────────────
-// Helper - Format check-in từ DB sang type
-// ───────────────────────────────────────────────
-function formatCheckIn(c: any) {
-  if (!c) return null;
-  return {
-    ...c,
-    symptoms: (() => {
-      try {
-        return JSON.parse(c.symptoms);
-      } catch {
-        return [];
-      }
-    })(),
-    createdAt: c.createdAt.toISOString(),
-  };
-}
-
-// ───────────────────────────────────────────────
 // Helper - Tính tình trạng tổng thể
 // ───────────────────────────────────────────────
-function calcOverallStatus(alerts: any[], checkIns: any[]): OverallStatus {
+function calcOverallStatus(
+  alerts: { severity: string }[],
+  checkIns: CheckIn[],
+): OverallStatus {
   if (alerts.some((a) => a.severity === "emergency")) return "critical";
   if (alerts.some((a) => a.severity === "high")) return "concerning";
   if (alerts.some((a) => a.severity === "medium")) return "okay";
@@ -48,51 +37,25 @@ router.get("/today", async (_req, res) => {
   try {
     const today = new Date().toISOString().split("T")[0];
 
-    // Lấy check-in hôm nay
-    const todayCheckIns = await prisma.checkIn.findMany({
-      where: { date: today },
-      orderBy: { createdAt: "asc" },
-    });
+    const todayCheckIns = getCheckInsByDate(today);
 
-    // Lấy alerts hôm nay
     const startOfDay = new Date(today);
     const endOfDay = new Date(new Date(today).getTime() + 24 * 60 * 60 * 1000);
-
-    const todayAlerts = await prisma.alert.findMany({
-      where: {
-        createdAt: {
-          gte: startOfDay,
-          lt: endOfDay,
-        },
-      },
-    });
+    const todayAlerts = getAlertsInRange(startOfDay, endOfDay);
 
     const morningCheckIn =
-      todayCheckIns.find((c) => c.session === "morning") || null;
-
+      todayCheckIns.find((c) => c.session === "morning") ?? null;
     const eveningCheckIn =
-      todayCheckIns.find((c) => c.session === "evening") || null;
+      todayCheckIns.find((c) => c.session === "evening") ?? null;
 
-    // Tính tình trạng tổng thể
     const overallStatus = calcOverallStatus(todayAlerts, todayCheckIns);
 
     // Tạo highlights
     const highlights: string[] = [];
+    if (!morningCheckIn) highlights.push("Chưa check-in buổi sáng");
+    if (!eveningCheckIn) highlights.push("Chưa check-in buổi tối");
 
-    if (!morningCheckIn) {
-      highlights.push("Chưa check-in buổi sáng");
-    }
-    if (!eveningCheckIn) {
-      highlights.push("Chưa check-in buổi tối");
-    }
-
-    const allSymptoms = todayCheckIns.flatMap((c) => {
-      try {
-        return JSON.parse(c.symptoms) as string[];
-      } catch {
-        return [];
-      }
-    });
+    const allSymptoms = todayCheckIns.flatMap((c) => c.symptoms);
     const uniqueSymptoms = [...new Set(allSymptoms)];
     if (uniqueSymptoms.length > 0) {
       highlights.push(`Triệu chứng hôm nay: ${uniqueSymptoms.join(", ")}`);
@@ -105,8 +68,8 @@ router.get("/today", async (_req, res) => {
 
     const report: DailyReport = {
       date: today,
-      morningCheckIn: formatCheckIn(morningCheckIn),
-      eveningCheckIn: formatCheckIn(eveningCheckIn),
+      morningCheckIn,
+      eveningCheckIn,
       overallStatus,
       highlights,
       symptomReport: null,
@@ -136,26 +99,8 @@ router.get("/week", async (_req, res) => {
     weekStart.setDate(today.getDate() - 6);
     weekStart.setHours(0, 0, 0, 0);
 
-    // Lấy check-in trong tuần
-    const weekCheckIns = await prisma.checkIn.findMany({
-      where: {
-        createdAt: {
-          gte: weekStart,
-          lte: today,
-        },
-      },
-      orderBy: { createdAt: "asc" },
-    });
-
-    // Lấy alerts trong tuần
-    const weekAlerts = await prisma.alert.findMany({
-      where: {
-        createdAt: {
-          gte: weekStart,
-          lte: today,
-        },
-      },
-    });
+    const weekCheckIns = getCheckInsInRange(weekStart, today);
+    const weekAlerts = getAlertsInRange(weekStart, today);
 
     // Thống kê theo ngày
     const daysWithCheckIn = new Set(weekCheckIns.map((c) => c.date));
@@ -176,14 +121,7 @@ router.get("/week", async (_req, res) => {
     const missedDays = 7 - daysWithCheckIn.size;
 
     // Triệu chứng hay gặp nhất
-    const allSymptoms = weekCheckIns.flatMap((c) => {
-      try {
-        return JSON.parse(c.symptoms) as string[];
-      } catch {
-        return [];
-      }
-    });
-
+    const allSymptoms = weekCheckIns.flatMap((c) => c.symptoms);
     const symptomCount: Record<string, number> = {};
     allSymptoms.forEach((s) => {
       symptomCount[s] = (symptomCount[s] || 0) + 1;
@@ -203,11 +141,7 @@ router.get("/week", async (_req, res) => {
       badDays,
       missedDays,
       mostCommonSymptoms,
-      alerts: weekAlerts.map((a) => ({
-        ...a,
-        createdAt: a.createdAt.toISOString(),
-        readAt: a.readAt?.toISOString() || null,
-      })),
+      alerts: weekAlerts,
     });
   } catch (error: any) {
     console.error(`❌ Lỗi reports/week: ${error.message}`);
@@ -228,19 +162,13 @@ router.post("/send-daily", async (req, res) => {
     }
 
     const today = new Date().toISOString().split("T")[0];
-
-    const todayCheckIns = await prisma.checkIn.findMany({
-      where: { date: today },
-      orderBy: { createdAt: "asc" },
-    });
+    const todayCheckIns = getCheckInsByDate(today);
 
     const morningCheckIn =
-      todayCheckIns.find((c) => c.session === "morning") || null;
-
+      todayCheckIns.find((c) => c.session === "morning") ?? null;
     const eveningCheckIn =
-      todayCheckIns.find((c) => c.session === "evening") || null;
+      todayCheckIns.find((c) => c.session === "evening") ?? null;
 
-    // Tính trạng thái
     let overallStatus: OverallStatus = "good";
     if (todayCheckIns.some((c) => c.feeling === "bad")) {
       overallStatus = "concerning";
@@ -248,18 +176,11 @@ router.post("/send-daily", async (req, res) => {
       overallStatus = "okay";
     }
 
-    // Highlights
     const highlights: string[] = [];
     if (!morningCheckIn) highlights.push("Chưa check-in buổi sáng");
     if (!eveningCheckIn) highlights.push("Chưa check-in buổi tối");
 
-    const allSymptoms = todayCheckIns.flatMap((c) => {
-      try {
-        return JSON.parse(c.symptoms) as string[];
-      } catch {
-        return [];
-      }
-    });
+    const allSymptoms = todayCheckIns.flatMap((c) => c.symptoms);
     const uniqueSymptoms = [...new Set(allSymptoms)];
     if (uniqueSymptoms.length > 0) {
       highlights.push(`Triệu chứng: ${uniqueSymptoms.join(", ")}`);
@@ -267,8 +188,8 @@ router.post("/send-daily", async (req, res) => {
 
     const report: DailyReport = {
       date: today,
-      morningCheckIn: formatCheckIn(morningCheckIn),
-      eveningCheckIn: formatCheckIn(eveningCheckIn),
+      morningCheckIn,
+      eveningCheckIn,
       overallStatus,
       highlights,
       symptomReport: null,
@@ -280,7 +201,6 @@ router.post("/send-daily", async (req, res) => {
       generatedAt: new Date().toISOString(),
     };
 
-    // Dùng email của mình khi dev
     const toEmail =
       process.env.NODE_ENV === "development"
         ? process.env.ALERT_TO_EMAIL || childEmail

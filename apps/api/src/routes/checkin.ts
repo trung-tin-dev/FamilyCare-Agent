@@ -1,18 +1,24 @@
 // apps/api/src/routes/checkin.ts
 // ═══════════════════════════════════════════════
 // Route xử lý check-in từ ba mẹ
-// Lưu vào Neon PostgreSQL qua Prisma
+// Lưu vào file JSON cục bộ (Privacy-First)
 // ═══════════════════════════════════════════════
 import { Router, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { analyzeCheckIn } from "../services/pythonAgent";
 import { sendAlertEmail } from "../services/email";
-import { prisma } from "../lib/db";
+import {
+  saveCheckIn,
+  getRecentCheckIns,
+  getCheckInsByDate,
+} from "../lib/localStore";
+import { saveAlert } from "../lib/localStore";
+import { anonymizeRequest, logAnonymizationInfo } from "../lib/anonymizer";
 import type {
   CheckInRequest,
   CheckInResponse,
-  CheckIn,
   Alert,
+  AgentRequest,
 } from "@familycare/shared";
 
 const router = Router();
@@ -49,27 +55,17 @@ router.post(
     console.log(`\n📥 Check-in mới: feeling=${feeling}, session=${session}`);
 
     try {
-      // Lấy triệu chứng gần đây từ DB
-      const recentCheckIns = await prisma.checkIn.findMany({
-        orderBy: { createdAt: "desc" },
-        take: 5,
-      });
-
+      // Lấy triệu chứng gần đây từ local file
+      const recentCheckIns = getRecentCheckIns(5);
       const recentSymptoms = recentCheckIns
-        .flatMap((c) => {
-          try {
-            return JSON.parse(c.symptoms) as string[];
-          } catch {
-            return [];
-          }
-        })
+        .flatMap((c) => c.symptoms)
         .filter((s, i, arr) => arr.indexOf(s) === i);
 
-      // Gửi sang Python Agent phân tích
-      const agentResult = await analyzeCheckIn({
+      // Tạo request cho Python Agent
+      const agentRequestRaw: AgentRequest = {
         message:
           voiceTranscript ||
-          `Ba/Mẹ cảm thấy ${
+          `Người dùng cảm thấy ${
             feeling === "good"
               ? "khỏe"
               : feeling === "okay"
@@ -78,68 +74,53 @@ router.post(
           }`,
         sessionId: uuidv4(),
         context: { feeling, session, recentSymptoms },
-      });
-
-      // Lưu check-in vào DB
-      const savedCheckIn = await prisma.checkIn.create({
-        data: {
-          id: uuidv4(),
-          date: new Date().toISOString().split("T")[0],
-          time: new Date().toLocaleTimeString("vi-VN"),
-          session,
-          feeling,
-          voiceTranscript,
-          symptoms: JSON.stringify(agentResult.detectedSymptoms),
-          medicationTaken,
-          medicationNotes: "",
-          inputType,
-        },
-      });
-
-      // Chuyển sang type CheckIn
-      const newCheckIn: CheckIn = {
-        ...savedCheckIn,
-        symptoms: JSON.parse(savedCheckIn.symptoms),
-        session: savedCheckIn.session as "morning" | "evening",
-        feeling: savedCheckIn.feeling as "good" | "okay" | "bad",
-        inputType: savedCheckIn.inputType as "button" | "voice" | "text",
-        createdAt: savedCheckIn.createdAt.toISOString(),
       };
+
+      // 🔒 Anonymize trước khi gửi AI
+      const agentRequestAnon = anonymizeRequest(agentRequestRaw);
+      logAnonymizationInfo(agentRequestRaw, agentRequestAnon);
+
+      // Gửi sang Python Agent phân tích (với dữ liệu đã ẩn danh)
+      const agentResult = await analyzeCheckIn(agentRequestAnon);
+
+      // Lưu check-in vào file local
+      const newCheckIn = saveCheckIn({
+        date: new Date().toISOString().split("T")[0],
+        time: new Date().toLocaleTimeString("vi-VN"),
+        session,
+        feeling,
+        voiceTranscript,
+        symptoms: agentResult.detectedSymptoms,
+        medicationTaken,
+        medicationNotes: "",
+        inputType,
+      });
 
       // Xử lý cảnh báo
       const newAlerts: Alert[] = [];
 
       if (agentResult.shouldNotifyChild) {
-        // Lưu alert vào DB
-        const savedAlert = await prisma.alert.create({
-          data: {
-            id: uuidv4(),
-            type:
-              agentResult.severity === "emergency"
-                ? "EMERGENCY"
-                : "SYMPTOM_CONSECUTIVE",
-            severity: agentResult.severity,
-            title:
-              agentResult.severity === "emergency"
-                ? "🚨 Cần hỗ trợ khẩn cấp!"
-                : `⚠️ ${profile?.callName || "Ba/Mẹ"} cần được chú ý`,
-            message: voiceTranscript
-              ? `${profile?.callName || "Ba/Mẹ"} nói: "${voiceTranscript}"`
-              : `${profile?.callName || "Ba/Mẹ"} cảm thấy không khỏe`,
-            action:
-              agentResult.severity === "emergency"
-                ? "Gọi điện ngay hoặc liên hệ cấp cứu 115"
-                : `Gọi hỏi thăm ${profile?.callName || "Ba/Mẹ"} hôm nay`,
-          },
+        const alert = saveAlert({
+          type:
+            agentResult.severity === "emergency"
+              ? "EMERGENCY"
+              : "SYMPTOM_CONSECUTIVE",
+          severity: agentResult.severity,
+          title:
+            agentResult.severity === "emergency"
+              ? "🚨 Cần hỗ trợ khẩn cấp!"
+              : `⚠️ ${profile?.callName || "Ba/Mẹ"} cần được chú ý`,
+          message: voiceTranscript
+            ? `${profile?.callName || "Ba/Mẹ"} nói: "${voiceTranscript}"`
+            : `${profile?.callName || "Ba/Mẹ"} cảm thấy không khỏe`,
+          action:
+            agentResult.severity === "emergency"
+              ? "Gọi điện ngay hoặc liên hệ cấp cứu 115"
+              : `Gọi hỏi thăm ${profile?.callName || "Ba/Mẹ"} hôm nay`,
+          isRead: false,
+          isResolved: false,
+          readAt: null,
         });
-
-        const alert: Alert = {
-          ...savedAlert,
-          type: savedAlert.type as Alert["type"],
-          severity: savedAlert.severity as Alert["severity"],
-          createdAt: savedAlert.createdAt.toISOString(),
-          readAt: savedAlert.readAt?.toISOString() || null,
-        };
 
         newAlerts.push(alert);
 
@@ -159,7 +140,7 @@ router.post(
         }
       }
 
-      console.log(`✅ Check-in lưu DB thành công - id=${savedCheckIn.id}`);
+      console.log(`✅ Check-in lưu local thành công - id=${newCheckIn.id}`);
 
       return res.json({
         success: true,
@@ -171,7 +152,7 @@ router.post(
       console.error(`❌ Lỗi check-in: ${error.message}`);
       return res.status(500).json({
         success: false,
-        checkIn: {} as CheckIn,
+        checkIn: {} as any,
         agentReply: "Xin lỗi, có lỗi xảy ra. Ba/Mẹ thử lại sau nhé!",
         alerts: [],
         error: error.message,
@@ -187,23 +168,13 @@ router.post(
 router.get("/today", async (_req, res) => {
   try {
     const today = new Date().toISOString().split("T")[0];
-
-    const todayCheckIns = await prisma.checkIn.findMany({
-      where: { date: today },
-      orderBy: { createdAt: "asc" },
-    });
-
-    const formatted = todayCheckIns.map((c) => ({
-      ...c,
-      symptoms: JSON.parse(c.symptoms),
-      createdAt: c.createdAt.toISOString(),
-    }));
+    const todayCheckIns = getCheckInsByDate(today);
 
     res.json({
       date: today,
-      checkIns: formatted,
-      morningDone: formatted.some((c) => c.session === "morning"),
-      eveningDone: formatted.some((c) => c.session === "evening"),
+      checkIns: todayCheckIns,
+      morningDone: todayCheckIns.some((c) => c.session === "morning"),
+      eveningDone: todayCheckIns.some((c) => c.session === "evening"),
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -212,22 +183,12 @@ router.get("/today", async (_req, res) => {
 
 // ───────────────────────────────────────────────
 // GET /api/checkin/history
-// Lấy lịch sử 14 ngày gần nhất
+// Lấy lịch sử 14 check-in gần nhất
 // ───────────────────────────────────────────────
 router.get("/history", async (_req, res) => {
   try {
-    const checkIns = await prisma.checkIn.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 14,
-    });
-
-    res.json({
-      checkIns: checkIns.map((c) => ({
-        ...c,
-        symptoms: JSON.parse(c.symptoms),
-        createdAt: c.createdAt.toISOString(),
-      })),
-    });
+    const checkIns = getRecentCheckIns(14);
+    res.json({ checkIns });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
