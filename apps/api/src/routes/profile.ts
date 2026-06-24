@@ -42,9 +42,9 @@ router.post("/", (req, res) => {
     const profile = req.body as UserProfile;
 
     // Validate các field bắt buộc
-    if (!profile.parentName || !profile.childEmail || !profile.callName) {
+    if (!profile.childEmail || !profile.callName) {
       return res.status(400).json({
-        error: "Thiếu thông tin bắt buộc: parentName, childEmail, callName",
+        error: "Thiếu thông tin bắt buộc: childEmail, callName",
       });
     }
 
@@ -54,7 +54,7 @@ router.post("/", (req, res) => {
       createdAt: profile.createdAt || new Date().toISOString(),
     });
 
-    console.log(`✅ Đã lưu profile: ${saved.callName} ${saved.parentName}`);
+    console.log(`Đã lưu profile: ${saved.callName}`);
 
     res.json({
       success: true,

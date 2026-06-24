@@ -61,10 +61,6 @@ router.get("/today", async (_req, res) => {
       highlights.push(`Triệu chứng hôm nay: ${uniqueSymptoms.join(", ")}`);
     }
 
-    const tookMedication = todayCheckIns.some((c) => c.medicationTaken);
-    if (!tookMedication && todayCheckIns.length > 0) {
-      highlights.push("Chưa xác nhận uống thuốc hôm nay");
-    }
 
     const report: DailyReport = {
       date: today,

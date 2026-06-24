@@ -43,7 +43,7 @@ function readJson<T>(filePath: string, defaultValue: T[]): T[] {
     const raw = fs.readFileSync(filePath, "utf-8");
     return JSON.parse(raw) as T[];
   } catch (err) {
-    console.error(`❌ Lỗi đọc file ${filePath}:`, err);
+    console.error(`Lỗi đọc file ${filePath}:`, err);
     return defaultValue;
   }
 }
@@ -53,7 +53,7 @@ function writeJson<T>(filePath: string, data: T[]): void {
     ensureDataDir();
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
   } catch (err) {
-    console.error(`❌ Lỗi ghi file ${filePath}:`, err);
+    console.error(`Lỗi ghi file ${filePath}:`, err);
     throw err;
   }
 }
@@ -80,7 +80,7 @@ export function saveCheckIn(
   checkIns.push(newCheckIn);
   writeJson(CHECKINS_FILE, checkIns);
 
-  console.log(`💾 Đã lưu check-in local: id=${newCheckIn.id}`);
+  console.log(`Đã lưu check-in local: id=${newCheckIn.id}`);
   return newCheckIn;
 }
 

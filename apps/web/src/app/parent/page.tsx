@@ -1,6 +1,6 @@
 // src/app/parent/page.tsx
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getProfile } from "@/lib/storage";
 import { sendCheckIn, toBackendProfile } from "@/lib/api";
@@ -9,28 +9,7 @@ import type { UserProfile, Feeling, CheckInSession } from "@familycare/shared";
 // ───────────────────────────────────────────────
 // Types
 // ───────────────────────────────────────────────
-type PageState = "idle" | "recording" | "loading" | "replied" | "emergency";
-
-interface SpeechRecognitionEvent {
-  results: {
-    [index: number]: {
-      [index: number]: {
-        transcript: string;
-      };
-    };
-  };
-}
-
-interface SpeechRecognitionInstance {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: (event: SpeechRecognitionEvent) => void;
-  onerror: () => void;
-  onend: () => void;
-  start: () => void;
-  stop: () => void;
-}
+type PageState = "idle" | "loading" | "replied" | "emergency";
 
 // ───────────────────────────────────────────────
 // Helpers
@@ -57,11 +36,8 @@ export default function ParentPage() {
   const [agentReply, setAgentReply] = useState("");
   const [transcript, setTranscript] = useState("");
   const [hasAlerts, setHasAlerts] = useState(false);
-  const [medicationTaken, setMedicationTaken] = useState(false);
   const [checkedInToday, setCheckedInToday] = useState(false);
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
 
-  // Load profile - sửa lỗi setState trong effect
 useEffect(() => {
   if (!profile?.isSetupComplete) {
     router.replace("/setup");
@@ -73,8 +49,7 @@ useEffect(() => {
   // ───────────────────────────────────────────────
   async function handleCheckIn(
     feeling: Feeling,
-    voiceText: string = "",
-    inputType: "button" | "voice" = "button",
+    inputType: "button" = "button",
   ) {
     if (!profile) return;
     setPageState("loading");
@@ -82,10 +57,8 @@ useEffect(() => {
     try {
       const result = await sendCheckIn({
         feeling,
-        voiceTranscript: voiceText,
         inputType,
         session: getSession(),
-        medicationTaken,
         profile: toBackendProfile(profile),
       });
 
@@ -118,60 +91,6 @@ useEffect(() => {
   }
 
   // ───────────────────────────────────────────────
-  // Voice Input
-  // ───────────────────────────────────────────────
-  function startVoiceInput() {
-    const SpeechRecognitionAPI =
-      (
-        window as Window & {
-          SpeechRecognition?: new () => SpeechRecognitionInstance;
-        }
-      ).SpeechRecognition ||
-      (
-        window as Window & {
-          webkitSpeechRecognition?: new () => SpeechRecognitionInstance;
-        }
-      ).webkitSpeechRecognition;
-
-    if (!SpeechRecognitionAPI) {
-      alert("Trình duyệt chưa hỗ trợ ghi âm. Dùng Safari hoặc Chrome nhé.");
-      return;
-    }
-
-    const recognition = new SpeechRecognitionAPI();
-    recognition.lang = "vi-VN";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognitionRef.current = recognition;
-    setPageState("recording");
-    setTranscript("");
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const text = event.results[0][0].transcript;
-      setTranscript(text);
-      handleCheckIn("bad", text, "voice");
-    };
-
-    recognition.onerror = () => {
-      setPageState("idle");
-      speakText("Xin lỗi, con không nghe rõ. Ba thử lại nhé.");
-    };
-
-    recognition.onend = () => {
-      // Không làm gì, để handleCheckIn xử lý state
-    };
-
-    recognition.start();
-    speakText("Con đang nghe Ba ạ, Ba cứ nói tự nhiên nhé.");
-  }
-
-  function stopVoiceInput() {
-    recognitionRef.current?.stop();
-    setPageState("idle");
-  }
-
-  // ───────────────────────────────────────────────
   // Reset
   // ───────────────────────────────────────────────
   function handleReset() {
@@ -184,10 +103,13 @@ useEffect(() => {
   // ───────────────────────────────────────────────
   // Render: Loading
   // ───────────────────────────────────────────────
+  if (!profile?.isSetupComplete) {
+    return null;
+  }
   if (pageState === "loading") {
     return (
       <div className="min-h-screen bg-blue-50 flex flex-col items-center justify-center gap-6 p-6">
-        <div className="text-8xl animate-bounce">🤔</div>
+        <div className="text-8xl animate-bounce"></div>
         <p className="text-3xl font-bold text-blue-700 text-center">
           Con đang xem...
         </p>
@@ -198,32 +120,6 @@ useEffect(() => {
     );
   }
 
-  // ───────────────────────────────────────────────
-  // Render: Recording
-  // ───────────────────────────────────────────────
-  if (pageState === "recording") {
-    return (
-      <div className="min-h-screen bg-red-50 flex flex-col items-center justify-center gap-8 p-6">
-        <div className="text-8xl animate-pulse">🎤</div>
-        <p className="text-3xl font-bold text-red-600 text-center">
-          Con đang nghe...
-        </p>
-        <p className="text-xl text-gray-600 text-center">
-          Ba cứ nói tự nhiên nhé!
-        </p>
-        <button
-          onClick={stopVoiceInput}
-          className="
-            w-full max-w-sm py-6 bg-red-500 text-white
-            text-2xl font-bold rounded-3xl
-            active:scale-95 transition-transform
-          "
-        >
-          ⏹ Dừng lại
-        </button>
-      </div>
-    );
-  }
 
   // ───────────────────────────────────────────────
   // Render: Agent trả lời
@@ -311,9 +207,6 @@ useEffect(() => {
       {/* Header */}
       <div className="pt-4 pb-2 text-center">
         <p className="text-2xl text-gray-500">{getGreeting()}!</p>
-        <h1 className="text-4xl font-bold text-blue-700 mt-1">
-          {profile.callName} {profile.parentName}
-        </h1>
         <p className="text-xl text-gray-500 mt-2">
           Hôm nay {profile.callName} thấy thế nào?
         </p>
@@ -342,7 +235,6 @@ useEffect(() => {
             flex items-center justify-center gap-5
           "
         >
-          <span className="text-6xl">😊</span>
           <span className="text-4xl font-bold">KHỎE</span>
         </button>
 
@@ -355,7 +247,6 @@ useEffect(() => {
             flex items-center justify-center gap-5
           "
         >
-          <span className="text-6xl">😐</span>
           <span className="text-4xl font-bold">BÌNH THƯỜNG</span>
         </button>
 
@@ -368,67 +259,16 @@ useEffect(() => {
             flex items-center justify-center gap-5
           "
         >
-          <span className="text-6xl">😔</span>
           <span className="text-4xl font-bold">KHÔNG KHỎE</span>
         </button>
       </div>
 
-      {/* Nút phụ */}
-      <div className="flex flex-col gap-3 pb-4">
-        <button
-          onClick={startVoiceInput}
-          className="
-            w-full py-6 bg-blue-500 text-white
-            rounded-3xl shadow-md
-            active:scale-95 transition-transform
-            flex items-center justify-center gap-4
-          "
-        >
-          <span className="text-4xl">🎤</span>
-          <span className="text-2xl font-bold">NÓI CHO CON NGHE</span>
-        </button>
-
-        <button
-          onClick={() => {
-            setMedicationTaken((prev) => {
-              const next = !prev;
-              speakText(
-                next
-                  ? "Đã ghi nhận uống thuốc rồi ạ!"
-                  : "Đã bỏ ghi nhận uống thuốc",
-              );
-              return next;
-            });
-          }}
-          className={`
-            w-full py-6 text-white rounded-3xl shadow-md
-            active:scale-95 transition-all
-            flex items-center justify-center gap-4
-            ${medicationTaken ? "bg-purple-600" : "bg-purple-400"}
-          `}
-        >
-          <span className="text-4xl">💊</span>
-          <span className="text-2xl font-bold">
-            {medicationTaken ? "ĐÃ UỐNG THUỐC ✓" : "ĐÃ UỐNG THUỐC"}
-          </span>
-        </button>
-
-        <button
-          onClick={() => {
-            speakText("Đang kết nối với con...");
-            handleCheckIn("bad", "Ba cần gọi con gấp", "button");
-          }}
-          className="
-            w-full py-6 bg-red-600 text-white
-            rounded-3xl shadow-md
-            active:scale-95 transition-transform
-            flex items-center justify-center gap-4
-          "
-        >
-          <span className="text-4xl">🆘</span>
-          <span className="text-2xl font-bold">GỌI CON NGAY</span>
-        </button>
-      </div>
+      <button
+        onClick={() => router.push("/setup")}
+        className="w-full py-4 bg-green-400 text-white rounded-3xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-5"
+      >
+        <span className="text-4xl font-bold">Setup</span>
+      </button>
 
       {/* Link sang dashboard */}
       <button

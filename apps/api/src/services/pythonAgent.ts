@@ -38,13 +38,12 @@ export async function analyzeCheckIn(
   const alive = await isPythonAlive();
 
   if (!alive) {
-    console.warn("⚠️  Python Agent chưa chạy → dùng mock response");
-    return createMockResponse(request);
+    console.warn("Python Agent chưa chạy");
   }
 
   try {
     console.log(
-      `📤 Gửi sang Python Agent: "${request.message.slice(0, 50)}..."`,
+      `Gửi sang Python Agent: "${request.message.slice(0, 50)}..."`,
     );
 
     // ── Gọi đúng endpoint /analyze ────────────────────────────────────────
@@ -55,11 +54,11 @@ export async function analyzeCheckIn(
     );
 
     console.log(
-      `📥 Python Agent trả về: severity=${response.data.severity}, notify=${response.data.shouldNotifyChild}`,
+      `Python Agent trả về: severity=${response.data.severity}, notify=${response.data.shouldNotifyChild}`,
     );
     return response.data;
   } catch (error: any) {
-    console.error(`❌ Python Agent lỗi: ${error.message}`);
+    console.error(`Python Agent lỗi: ${error.message}`);
     return createMockResponse(request);
   }
 }
@@ -75,11 +74,11 @@ function createMockResponse(request: AgentRequest): AgentResponse {
   let shouldNotify = false;
 
   if (feeling === "good") {
-    reply = `Con mừng khi nghe Ba/Mẹ khỏe! Nhớ uống nước nhiều và nghỉ ngơi đầy đủ nhé! 😊`;
+    reply = `Con mừng khi nghe Ba/Mẹ khỏe! Nhớ uống nước nhiều và nghỉ ngơi đầy đủ nhé!`;
     severity = "low";
     shouldNotify = false;
   } else if (feeling === "okay") {
-    reply = `Con hiểu rồi ạ. Nếu có gì không khỏe thì Ba/Mẹ cứ nói cho con biết nhé! 🙂`;
+    reply = `Con hiểu rồi ạ. Nếu có gì không khỏe thì Ba/Mẹ cứ nói cho con biết nhé!`;
     severity = "low";
     shouldNotify = false;
   } else {
@@ -87,15 +86,15 @@ function createMockResponse(request: AgentRequest): AgentResponse {
       /đau ngực|khó thở|ngã|té|bất tỉnh|xỉu|cấp cứu|sos/i.test(request.message);
 
     if (isEmergency) {
-      reply = `🚨 Con lo cho Ba/Mẹ lắm! Con sẽ liên hệ ngay. Ba/Mẹ ngồi nghỉ và đừng đi lại nhiều nhé!`;
+      reply = `Con lo cho Ba/Mẹ lắm! Con sẽ liên hệ ngay. Ba/Mẹ ngồi nghỉ và đừng đi lại nhiều nhé!`;
       severity = "emergency";
       shouldNotify = true;
     } else if (recentSymptoms.length >= 2) {
-      reply = `Con thấy Ba/Mẹ không khỏe mấy ngày rồi. Con sẽ gọi hỏi thăm sớm nhé. Ba/Mẹ nghỉ ngơi nhiều vào! 💙`;
+      reply = `Con thấy Ba/Mẹ không khỏe mấy ngày rồi. Con sẽ gọi hỏi thăm sớm nhé. Ba/Mẹ nghỉ ngơi nhiều vào!`;
       severity = "medium";
       shouldNotify = true;
     } else {
-      reply = `Con hiểu rồi Ba/Mẹ ơi. Hôm nay không khỏe thì nghỉ ngơi nhiều vào nhé. Nếu mệt hơn thì Ba/Mẹ nhớ bấm nút gọi con! 💙`;
+      reply = `Con hiểu rồi Ba/Mẹ ơi. Hôm nay không khỏe thì nghỉ ngơi nhiều vào nhé. Nếu mệt hơn thì Ba/Mẹ nhớ bấm nút gọi con!`;
       severity = "low";
       shouldNotify = false;
     }

@@ -47,7 +47,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 else:
-    print("⚠️  GEMINI_API_KEY chưa được cấu hình!")
+    print("GEMINI_API_KEY chưa được cấu hình!")
 
 # ── FastAPI ───────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -333,11 +333,11 @@ Phân tích và trả về JSON theo đúng định dạng."""
         print(f"🔌 [MCP] write_checkin_symptoms → id={request.checkinId}, symptoms={detected}")
         success = await write_checkin_symptoms(request.checkinId, detected)
         if success:
-            print(f"   ✅ Đã cập nhật symptoms vào check-in {request.checkinId}")
+            print(f"   Đã cập nhật symptoms vào check-in {request.checkinId}")
         else:
-            print(f"   ⚠️  Không tìm thấy check-in id={request.checkinId}")
+            print(f"   Không tìm thấy check-in id={request.checkinId}")
 
-    print(f"✅ Xong: severity={severity}, notify={should_notify}, symptoms={detected}")
+    print(f"Xong: severity={severity}, notify={should_notify}, symptoms={detected}")
 
     return AgentResponse(
         reply=reply,
@@ -398,8 +398,8 @@ async def health_check():
 #         raise HTTPException(status_code=500, detail=str(e))
 def analyze():
     return {
-        "reply": "Con hiểu rồi Ba",
-        "detectedSymptoms": ["đau đầu"],
+        "reply": "Con hiểu rồi ạ",
+        "detectedSymptoms": ["đau đầu", "chóng mặt"],
         "severity": "medium",
         "shouldNotifyChild": False,
         "alerts": []

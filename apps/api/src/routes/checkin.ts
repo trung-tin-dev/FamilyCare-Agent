@@ -37,14 +37,12 @@ router.post(
   ) => {
     const {
       feeling,
-      voiceTranscript = "",
       inputType,
       session,
-      medicationTaken = false,
       profile,
     } = req.body;
 
-    console.log(`\n📥 Check-in mới: feeling=${feeling}, session=${session}`);
+    console.log(`\n Check-in mới: feeling=${feeling}, session=${session}`);
 
     try {
       // ── Lấy triệu chứng gần đây ──────────────────────────────────────────
@@ -60,19 +58,15 @@ router.post(
         time: new Date().toLocaleTimeString("vi-VN"),
         session,
         feeling,
-        voiceTranscript,
         symptoms: [], // Rỗng, Python sẽ điền sau
-        medicationTaken,
-        medicationNotes: "",
         inputType,
       });
 
-      console.log(`💾 Đã lưu check-in trước: id=${newCheckIn.id}`);
+      console.log(`Đã lưu check-in trước: id=${newCheckIn.id}`);
 
       // ── BƯỚC 2: Tạo AgentRequest (kèm checkinId) ─────────────────────────
       const agentRequestRaw: AgentRequest & { checkinId?: string } = {
         message:
-          voiceTranscript ||
           `Người dùng cảm thấy ${
             feeling === "good"
               ? "khỏe"
@@ -111,9 +105,8 @@ router.post(
             agentResult.severity === "emergency"
               ? "🚨 Cần hỗ trợ khẩn cấp!"
               : `⚠️ ${profile?.callName || "Ba/Mẹ"} cần được chú ý`,
-          message: voiceTranscript
-            ? `${profile?.callName || "Ba/Mẹ"} nói: "${voiceTranscript}"`
-            : `${profile?.callName || "Ba/Mẹ"} cảm thấy không khỏe`,
+          message:
+            `${profile?.callName || "Ba/Mẹ"} cảm thấy không khỏe`,
           action:
             agentResult.severity === "emergency"
               ? "Gọi điện ngay hoặc liên hệ cấp cứu 115"
@@ -157,7 +150,7 @@ router.post(
         alerts: newAlerts,
       });
     } catch (error: any) {
-      console.error(`❌ Lỗi check-in: ${error.message}`);
+      console.error(`Lỗi check-in: ${error.message}`);
       return res.status(500).json({
         success: false,
         checkIn: {} as any,

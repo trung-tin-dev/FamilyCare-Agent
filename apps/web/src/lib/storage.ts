@@ -15,7 +15,6 @@ function isBrowser() {
 // ───────────────────────────────────────────────
 export function createDefaultProfile(): UserProfile {
   return {
-    parentName: "",
     callName: "Ba" as CallName,
     childName: "",
     childEmail: "",

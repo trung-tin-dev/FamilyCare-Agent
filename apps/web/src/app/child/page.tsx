@@ -30,47 +30,40 @@ const SEVERITY_STYLE = {
     border: "border-red-400",
     bg: "bg-red-50",
     badge: "bg-red-500 text-white",
-    icon: "🚨",
     label: "Khẩn cấp",
   },
   high: {
     border: "border-orange-400",
     bg: "bg-orange-50",
     badge: "bg-orange-500 text-white",
-    icon: "⚠️",
     label: "Nghiêm trọng",
   },
   medium: {
     border: "border-yellow-400",
     bg: "bg-yellow-50",
     badge: "bg-yellow-400 text-gray-800",
-    icon: "🔔",
     label: "Cần chú ý",
   },
   low: {
     border: "border-blue-200",
     bg: "bg-blue-50",
     badge: "bg-blue-400 text-white",
-    icon: "ℹ️",
     label: "Thông tin",
   },
 } as const;
 
 const FEELING_CONFIG = {
   good: {
-    emoji: "😊",
     label: "Khỏe",
     color: "text-green-600",
     bg: "bg-green-50",
   },
   okay: {
-    emoji: "😐",
     label: "Bình thường",
     color: "text-yellow-600",
     bg: "bg-yellow-50",
   },
   bad: {
-    emoji: "😔",
     label: "Không khỏe",
     color: "text-red-600",
     bg: "bg-red-50",
@@ -80,25 +73,21 @@ const FEELING_CONFIG = {
 const STATUS_CONFIG = {
   good: {
     label: "Tốt",
-    emoji: "💚",
     color: "text-green-600",
     bg: "bg-green-50",
   },
   okay: {
     label: "Bình thường",
-    emoji: "💛",
     color: "text-yellow-600",
     bg: "bg-yellow-50",
   },
   concerning: {
     label: "Đáng lo ngại",
-    emoji: "🧡",
     color: "text-orange-600",
     bg: "bg-orange-50",
   },
   critical: {
     label: "Nguy cấp",
-    emoji: "❤️",
     color: "text-red-600",
     bg: "bg-red-50",
   },
@@ -268,7 +257,6 @@ useEffect(() => {
             <h1 className="text-lg font-bold text-blue-600">🏥 FamilyCare</h1>
             <p className="text-xs text-gray-400">
               Theo dõi sức khỏe {callName}
-              {profile?.parentName ? ` — ${profile.parentName}` : ""}
             </p>
           </div>
 
@@ -418,7 +406,6 @@ function OverallStatusCard({
   return (
     <div className={`${cfg.bg} rounded-2xl p-5 border border-gray-100`}>
       <div className="flex items-center gap-3 mb-3">
-        <span className="text-4xl">{cfg.emoji}</span>
         <div>
           <p className="text-xs text-gray-500 uppercase tracking-wide">
             Tình trạng hôm nay
@@ -465,15 +452,11 @@ function OverallStatusCard({
 function SessionBadge({
   label,
   done,
-  feeling,
 }: {
   label: string;
   done: boolean;
   feeling?: string;
 }) {
-  const feelingCfg = feeling
-    ? FEELING_CONFIG[feeling as keyof typeof FEELING_CONFIG]
-    : null;
 
   return (
     <div
@@ -485,11 +468,6 @@ function SessionBadge({
       `}
     >
       <span>{label}</span>
-      {done && feelingCfg ? (
-        <span className="ml-1">{feelingCfg.emoji}</span>
-      ) : (
-        <span className="ml-1 text-gray-300">—</span>
-      )}
     </div>
   );
 }
@@ -622,7 +600,6 @@ function AlertCard({
       {/* Header */}
       <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-lg">{cfg.icon}</span>
           <span
             className={`text-xs font-bold px-2 py-0.5 rounded-full ${cfg.badge}`}
           >
@@ -713,7 +690,6 @@ function TimelineTab({
             {/* Header */}
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <span className="text-2xl">{feelingCfg.emoji}</span>
                 <div>
                   <p className={`text-sm font-semibold ${feelingCfg.color}`}>
                     {feelingCfg.label}
@@ -724,25 +700,7 @@ function TimelineTab({
                   </p>
                 </div>
               </div>
-
-              {/* Thuốc */}
-              <span
-                className={`text-xs px-2 py-1 rounded-full ${
-                  ci.medicationTaken
-                    ? "bg-green-100 text-green-700"
-                    : "bg-gray-100 text-gray-500"
-                }`}
-              >
-                {ci.medicationTaken ? "💊 Đã uống" : "💊 Chưa uống"}
-              </span>
             </div>
-
-            {/* Transcript */}
-            {ci.voiceTranscript && (
-              <p className="text-sm text-gray-600 italic mb-2 bg-gray-50 rounded-xl p-2">
-                &ldquo;{ci.voiceTranscript}&rdquo;
-              </p>
-            )}
 
             {/* Symptoms */}
             {ci.symptoms.length > 0 && (

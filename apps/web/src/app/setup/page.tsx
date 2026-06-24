@@ -276,7 +276,6 @@ export default function SetupPage() {
   // ───────────────────────────────────────
 async function handleComplete() {
   const profile = createDefaultProfile();
-  profile.parentName = parentName.trim();
   profile.callName = callName;
   profile.childName = childName.trim();
   profile.childEmail = childEmail.trim();
@@ -288,10 +287,10 @@ async function handleComplete() {
   // Lưu lên Express server (cho child dashboard dùng)
   try {
     await saveProfileToServer(profile);
-    console.log("✅ Đã lưu profile lên server");
+    console.log("Đã lưu profile lên server");
   } catch (err) {
     // Không chặn flow nếu server lỗi
-    console.warn("⚠️ Không lưu được profile lên server:", err);
+    console.warn("Không lưu được profile lên server:", err);
   }
 
   router.push("/parent");
@@ -305,7 +304,7 @@ async function handleComplete() {
       <div className="w-full max-w-md bg-white rounded-3xl shadow-xl p-8">
         {/* Header */}
         <div className="text-center mb-6">
-          <h1 className="text-3xl font-bold text-blue-600">🏥 FamilyCare</h1>
+          <h1 className="text-3xl font-bold text-blue-600">FamilyCare</h1>
           <p className="text-gray-400 text-sm mt-1">Trợ lý sức khỏe gia đình</p>
         </div>
 
@@ -329,7 +328,7 @@ async function handleComplete() {
 
         {/* Privacy note */}
         <p className="text-center text-xs text-gray-400 mt-8">
-          🔒 Thông tin được lưu trên thiết bị, không upload lên cloud
+          Thông tin được lưu trên thiết bị, không upload lên cloud
         </p>
       </div>
     </div>

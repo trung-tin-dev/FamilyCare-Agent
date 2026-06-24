@@ -1,15 +1,4 @@
-// packages/shared/src/index.ts
-// ═══════════════════════════════════════════════════
-// SHARED TYPES - ElderCare Agent
-// Dùng chung giữa Next.js (web) và Express (api)
-// ═══════════════════════════════════════════════════
-
-// ───────────────────────────────────────────────────
-// NHÓM 1 - UserProfile
-// Thông tin cài đặt do con cái điền lần đầu
-// ───────────────────────────────────────────────────
-
-export type CallName = "Ba" | "Mẹ" | "Ông" | "Bà" | "Khác";
+export type CallName = "Ba" | "Mẹ" | "Ông" | "Bà";
 
 export type CheckInTime = {
   hour: number; // 0-23
@@ -17,11 +6,7 @@ export type CheckInTime = {
 };
 
 export interface UserProfile {
-  // Thông tin người được chăm sóc (ba mẹ)
-  parentName: string; // Tên đầy đủ, ví dụ: "Nguyễn Văn Năm"
   callName: CallName; // Cách xưng hô: Ba/Mẹ/Ông/Bà
-
-  // Thông tin người chăm sóc (con cái)
   childName: string; // Tên con, ví dụ: "Nam"
   childEmail: string; // Email nhận thông báo
 
@@ -53,19 +38,11 @@ export interface CheckIn {
   // Trạng thái sức khỏe
   feeling: Feeling; // good/okay/bad
 
-  // Giọng nói (nếu ba mẹ nói)
-  voiceTranscript: string; // Nội dung ba mẹ nói
-  // Ví dụ: "Hôm nay mệt, đau lưng"
-
   // Agent phân tích ra
   symptoms: string[]; // Ví dụ: ["đau lưng", "mệt mỏi"]
 
-  // Thuốc
-  medicationTaken: boolean; // Đã uống thuốc chưa
-  medicationNotes: string; // Ghi chú về thuốc nếu có
-
   // Metadata
-  inputType: "button" | "voice" | "text"; // Ba mẹ dùng cách nào
+  inputType: "button" | "text"; // Ba mẹ dùng cách nào
   createdAt: string;
 }
 
@@ -144,7 +121,6 @@ export type AlertType =
   | "MISSED_CHECKIN" // Không check-in
   | "RED_FLAG_SYMPTOM" // Triệu chứng nguy hiểm
   | "EMERGENCY" // Khẩn cấp
-  | "MEDICATION_MISSED" // Quên uống thuốc
   | "NO_RESPONSE"; // Không phản hồi lâu
 
 export interface Alert {
@@ -212,9 +188,6 @@ export interface ChatMessage {
   content: string; // Nội dung tin nhắn
   type: MessageType; // Gõ chữ, nói, hay bấm nút
 
-  // Nếu là voice
-  audioTranscript: string | null; // Văn bản từ giọng nói
-
   timestamp: string;
 }
 
@@ -225,10 +198,8 @@ export interface ChatMessage {
 // Next.js gửi lên Express
 export interface CheckInRequest {
   feeling: Feeling;
-  voiceTranscript?: string; // Nếu ba mẹ nói
-  inputType: "button" | "voice" | "text";
+  inputType: "button" | "text";
   session: CheckInSession;
-  medicationTaken?: boolean;
 }
 
 // Express gửi xuống Python Agent
