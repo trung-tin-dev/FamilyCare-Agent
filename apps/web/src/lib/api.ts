@@ -158,5 +158,21 @@ export function toBackendProfile(profile: UserProfile) {
     callName: profile.callName,
   };
 }
+// ───────────────────────────────────────────────
+// Profile
+// ───────────────────────────────────────────────
+export async function saveProfileToServer(profile: UserProfile) {
+  const { data } = await api.post<{ success: boolean; profile: UserProfile }>(
+    "/api/profile",
+    profile,
+  );
+  return data;
+}
 
+export async function getProfileFromServer() {
+  const { data } = await api.get<{ success: boolean; profile: UserProfile }>(
+    "/api/profile",
+  );
+  return data;
+}
 export default api;

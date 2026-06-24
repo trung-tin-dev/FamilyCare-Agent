@@ -7,7 +7,7 @@
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import type { CheckIn, Alert } from "@familycare/shared";
+import type { CheckIn, Alert, UserProfile } from "@familycare/shared";
 
 // ───────────────────────────────────────────────
 // Đường dẫn lưu dữ liệu
@@ -172,4 +172,25 @@ export function getAlertsInRange(from: Date, to: Date): Alert[] {
 
 export function getAlertById(id: string): Alert | null {
   return getAlerts().find((a) => a.id === id) ?? null;
+}
+
+// ═══════════════════════════════════════════════
+// PROFILE - Lưu/đọc cấu hình gia đình
+// ═══════════════════════════════════════════════
+const PROFILE_FILE = path.join(DATA_DIR, "profile.json");
+
+export function getStoredProfile(): UserProfile | null {
+  try {
+    if (!fs.existsSync(PROFILE_FILE)) return null;
+    const raw = fs.readFileSync(PROFILE_FILE, "utf-8");
+    if (!raw.trim()) return null;
+    return JSON.parse(raw) as UserProfile;
+  } catch {
+    return null;
+  }
+}
+
+export function saveStoredProfile(profile: UserProfile): UserProfile {
+  fs.writeFileSync(PROFILE_FILE, JSON.stringify(profile, null, 2), "utf-8");
+  return profile;
 }

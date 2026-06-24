@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { saveProfile, createDefaultProfile } from "@/lib/storage";
 import type { CallName } from "@familycare/shared";
+import { saveProfileToServer } from "@/lib/api";
 
 const CALL_NAME_OPTIONS: { value: CallName; label: string; emoji: string }[] = [
   { value: "Ba", label: "Ba", emoji: "👨‍🦳" },
@@ -257,11 +258,11 @@ export default function SetupPage() {
             ← Sửa lại
           </button>
           <button
-            onClick={handleComplete}
+            onClick={handleComplete} // đã là async, gọi trực tiếp được
             className="
-              flex-1 p-4 bg-green-500 text-white text-xl font-bold
-              rounded-2xl hover:bg-green-600 transition-colors
-            "
+    flex-1 p-4 bg-green-500 text-white text-xl font-bold
+    rounded-2xl hover:bg-green-600 transition-colors
+  "
           >
             🎉 Bắt đầu!
           </button>
@@ -273,17 +274,28 @@ export default function SetupPage() {
   // ───────────────────────────────────────
   // Hoàn thành setup
   // ───────────────────────────────────────
-  function handleComplete() {
-    const profile = createDefaultProfile();
-    profile.parentName = parentName.trim();
-    profile.callName = callName;
-    profile.childName = childName.trim();
-    profile.childEmail = childEmail.trim();
-    profile.isSetupComplete = true;
+async function handleComplete() {
+  const profile = createDefaultProfile();
+  profile.parentName = parentName.trim();
+  profile.callName = callName;
+  profile.childName = childName.trim();
+  profile.childEmail = childEmail.trim();
+  profile.isSetupComplete = true;
 
-    saveProfile(profile);
-    router.push("/parent");
+  // Lưu vào localStorage (cho parent page dùng offline)
+  saveProfile(profile);
+
+  // Lưu lên Express server (cho child dashboard dùng)
+  try {
+    await saveProfileToServer(profile);
+    console.log("✅ Đã lưu profile lên server");
+  } catch (err) {
+    // Không chặn flow nếu server lỗi
+    console.warn("⚠️ Không lưu được profile lên server:", err);
   }
+
+  router.push("/parent");
+}
 
   // ───────────────────────────────────────
   // Render

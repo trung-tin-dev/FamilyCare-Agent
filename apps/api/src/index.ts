@@ -9,6 +9,7 @@ import dotenv from "dotenv";
 import checkinRouter from "./routes/checkin";
 import alertsRouter from "./routes/alerts";
 import reportsRouter from "./routes/reports";
+import profileRouter from "./routes/profile";
 import { checkPythonAgentHealth } from "./services/pythonAgent";
 
 dotenv.config();
@@ -34,6 +35,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/checkin", checkinRouter);
 app.use("/api/alerts", alertsRouter);
 app.use("/api/reports", reportsRouter);
+app.use("/api/profile", profileRouter);
 
 // ───────────────────────────────────────────────
 // GET /api/ping
